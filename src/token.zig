@@ -1,5 +1,6 @@
 const std = @import("std");
-const Char = @import("root.zig").Char;
+const lib = @import("root.zig");
+const Char = lib.Char;
 
 pub const Token = struct {
     mod: Mod = .none,
@@ -18,7 +19,7 @@ pub const Token = struct {
         semicolon,
         bang,
 
-        keyword: []const u8,
+        keyword: Kw,
         int: u64,
         float: f64,
         str: []const u8,
@@ -213,6 +214,8 @@ pub const Token = struct {
         }
     };
 
+    pub const Kw = lib.kw.KeywordEnum(&lib.kw.keywords);
+
     const Self = @This();
 
     pub fn init_with_data(comptime k: Kind, args: anytype) Self {
@@ -262,13 +265,17 @@ pub const Token = struct {
         return @as(Self.Kind, self.data);
     }
 
+    pub fn format_keywords(s: *const Kw, writer: anytype) !void {
+        try lib.kw.format_keywords(Kw, &lib.kw.keywords).format_(s, writer);
+    }
+
     pub fn format(self: Token, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
 
         switch (self.data) {
             .eof => try writer.writeAll("eof"),
-            .keyword => |val| try std.fmt.format(writer, "keyword: {s}", .{val}),
+            .keyword => |val| try format_keywords(&val, writer),
             .int => |val| switch (self.mod) {
                 .none => try std.fmt.format(writer, "int({d})", .{val}),
                 .hex => try std.fmt.format(writer, "int(0x{x})", .{val}),

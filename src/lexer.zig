@@ -3,20 +3,26 @@ const lib = @import("root.zig");
 const Interner = lib.Interner;
 const Token = lib.Token;
 const Char = lib.Char;
+const Ctxt = lib.Ctxt;
+
+var key_map: ?lib.kw.KeywordMap(&lib.kw.keywords, lib.Token.Kw).Map = null;
 
 pub const Lexer = struct {
     stream: []const u8,
     pos: usize = 0,
     token: Token = .init(.eof),
-    interner: *Interner,
+    ctxt: *Ctxt,
 
     const Self = @This();
 
-    pub fn init(interner: *Interner, stream: []const u8) Self {
+    pub fn init(ctxt: *Ctxt, stream: []const u8) Self {
+        key_map = lib.kw.KeywordMap(&lib.kw.keywords, Token.Kw).build(ctxt.allocator(), &ctxt.interner) catch unreachable;
+
         var lex = Self{
-            .interner = interner,
+            .ctxt = ctxt,
             .stream = stream,
         };
+
         lex.nextToken();
         return lex;
     }
@@ -144,9 +150,15 @@ pub const Lexer = struct {
                 }
 
                 const slice = self.stream[start..self.pos];
-                const value = self.interner.intern(slice) catch unreachable;
+                const value = self.ctxt.interner.intern(slice) catch unreachable;
 
-                self.token = .init_with_data(.name, value);
+                const kw: ?Token.Kw = key_map.?.get(value);
+
+                if (kw) |key| {
+                    self.token = .init_with_data(.keyword, key);
+                } else {
+                    self.token = .init_with_data(.name, value);
+                }
             },
             else => {
                 lib.syntax("unexpected token: '{c}'", .{c});
@@ -226,7 +238,7 @@ pub const Lexer = struct {
 
         _ = self.advance();
 
-        var buffer = self.interner.createBuffer(null) catch unreachable;
+        var buffer = self.ctxt.interner.createBuffer(null) catch unreachable;
 
         while (true) {
             const c = self.peek();
@@ -253,7 +265,7 @@ pub const Lexer = struct {
         }
 
         const slice =
-            self.interner.internOwned(&buffer) catch |err| {
+            self.ctxt.interner.internOwned(&buffer) catch |err| {
                 lib.syntax("failed to intern string: {}", .{err});
                 return;
             };
@@ -496,6 +508,18 @@ pub const Lexer = struct {
         self.nextToken();
     }
 
+    pub fn expectKeyword(self: *Self, val: Token.Kw) void {
+        if (self.token.data == .keyword) {
+            const kw = self.token.data.keyword;
+            if (kw != val) {
+                std.debug.panic("expected keyword {any}, got {s}", .{ val, self.token.kind().toString() });
+            }
+        }
+
+        std.debug.print("found: {}\n", .{self.token});
+        self.nextToken();
+    }
+
     pub fn expectChar(self: *Self, val: []const u8) void {
         const val_c = Char.init(val) catch unreachable;
         if (self.token.data == .char) {
@@ -536,13 +560,12 @@ pub const Lexer = struct {
 };
 
 test "lexer test" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    const gpa = std.heap.page_allocator;
 
-    var interner = Interner.init(arena.allocator());
-    defer interner.deinit();
+    var ctxt = Ctxt.init(gpa) catch unreachable;
+    defer ctxt.deinit();
 
-    var lexer = Lexer.init(&interner, "XY+(XY)_HELLO1,234+994");
+    var lexer = Lexer.init(ctxt, "XY+(XY)_HELLO1,234+994");
 
     lexer.expectName("XY");
     lexer.expect(.add);
@@ -554,6 +577,13 @@ test "lexer test" {
     lexer.expectInt(234);
     lexer.expect(.add);
     lexer.expectInt(994);
+    lexer.expect(.eof);
+
+    lexer.reinit("else hello hi lmao");
+    lexer.expectKeyword(.else_);
+    lexer.expectName("hello");
+    lexer.expectName("hi");
+    lexer.expectName("lmao");
     lexer.expect(.eof);
 
     lexer.reinit("0 18446744073709551615  0xffffffffffffffff 042 0b1111 0o777");
