@@ -14,6 +14,8 @@ data: union(Kind) {
     rbracket,
     comma,
     dot,
+    dot_dot,
+    dot_dot_eq,
     question,
     semicolon,
     bang,
@@ -73,6 +75,8 @@ pub const Kind = enum(u8) {
     rbracket,
     comma,
     dot,
+    dot_dot,
+    dot_dot_eq,
     question,
     semicolon,
     bang,
@@ -120,6 +124,22 @@ pub const Kind = enum(u8) {
     inc,
     dec,
 
+    pub fn isMul(self: @This()) bool {
+        return @intFromEnum(self) >= @intFromEnum(@This().mul) and @intFromEnum(self) <= @intFromEnum(@This().rshift);
+    }
+
+    pub fn isAdd(self: @This()) bool {
+        return @intFromEnum(self) >= @intFromEnum(@This().add) and @intFromEnum(self) <= @intFromEnum(@This().pipe);
+    }
+
+    pub fn isCmp(self: @This()) bool {
+        return @intFromEnum(self) >= @intFromEnum(@This().eq) and @intFromEnum(self) <= @intFromEnum(@This().gteq);
+    }
+
+    pub fn isAssign(self: @This()) bool {
+        return @intFromEnum(self) >= @intFromEnum(@This().assign) and @intFromEnum(self) <= @intFromEnum(@This().mod_assign);
+    }
+
     pub fn toString(self: *const @This()) []const u8 {
         return switch (self.*) {
             .eof => "<EOF>",
@@ -132,6 +152,8 @@ pub const Kind = enum(u8) {
             .rbracket => "]",
             .comma => ",",
             .dot => ".",
+            .dot_dot => "..",
+            .dot_dot_eq => "..=",
             .question => "?",
             .semicolon => ";",
             .bang => "!",

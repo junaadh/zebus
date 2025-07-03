@@ -16,14 +16,14 @@ pub const kw = @import("keywords.zig");
 // semantical analysis
 pub const ast = @import("ast.zig");
 
-pub fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print("FATAL: ", .{});
+pub fn fatal(comptime caller: std.builtin.SourceLocation, comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("FATAL at {s}:{}:{}: ", .{ caller.file, caller.line, caller.column });
     std.debug.print(fmt ++ "\n", args);
     std.process.exit(1);
 }
 
-pub fn syntax_fatal(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.print("FATAL: ", .{});
+pub fn syntax_fatal(comptime caller: std.builtin.SourceLocation, comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("FATAL at {s}:{}:{}: ", .{ caller.file, caller.line, caller.column });
     std.debug.print(fmt ++ "\n", args);
     std.process.exit(1);
 }

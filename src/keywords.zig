@@ -3,7 +3,7 @@ const std = @import("std");
 pub const keywords = [_][]const u8{
     "typedef", "enum",     "struct", "union", "let",  "const", "fn",  "sizeof",
     "break",   "continue", "return", "if",    "else", "while", "for", "switch",
-    "case",    "default",
+    "case",    "default",  "in",
 };
 
 pub fn sanitize(comptime kws: []const u8) [:0]const u8 {

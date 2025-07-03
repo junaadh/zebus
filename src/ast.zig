@@ -35,12 +35,12 @@ pub const Typespec = struct {
 
     pub const Func = struct {
         args: TypespecArray,
-        ret: *Self,
+        ret: ?*Self,
     };
 
     pub const Array = struct {
         elem: *Self,
-        size: *Expr,
+        size: ?*Expr,
     };
 
     pub fn none(ctx: *Ctxt) *Self {
@@ -54,7 +54,7 @@ pub const Typespec = struct {
     pub fn func(
         ctx: *Ctxt,
         args: TypespecArray,
-        ret: *Self,
+        ret: ?*Self,
     ) *Self {
         return alloc(Self, ctx, .func, Func{ .args = args, .ret = ret });
     }
@@ -62,7 +62,7 @@ pub const Typespec = struct {
     pub fn array(
         ctx: *Ctxt,
         elem: *Self,
-        size: *Expr,
+        size: ?*Expr,
     ) *Self {
         return alloc(Self, ctx, .array, Array{ .elem = elem, .size = size });
     }
@@ -85,9 +85,17 @@ pub const Typespec = struct {
                 for (value.args.items) |arg| {
                     try std.fmt.format(writer, " {s}", .{arg});
                 }
-                try std.fmt.format(writer, " ) {} )", .{value.ret});
+                if (value.ret) |r| {
+                    try std.fmt.format(writer, " ) {} )", .{r});
+                }
             },
-            .array => |value| try std.fmt.format(writer, "(array {} {})", .{ value.elem, value.size }),
+            .array => |value| {
+                try std.fmt.format(writer, "(array {} ", .{value.elem});
+                if (value.size) |s| {
+                    try std.fmt.format(writer, "{}", .{s});
+                }
+                try std.fmt.format(writer, ")", .{});
+            },
             .ptr => |value| try std.fmt.format(writer, "(ptr {})", .{value}),
             .none => {},
         }
@@ -120,7 +128,7 @@ pub const Decl = struct {
         func,
     };
 
-    pub const EnumDecl = std.ArrayList(*EnumItem);
+    pub const EnumDecl = std.ArrayList(EnumItem);
 
     pub const EnumItem = struct {
         name: []const u8,
@@ -129,7 +137,7 @@ pub const Decl = struct {
 
     pub const StringArray = std.ArrayList([]const u8);
 
-    pub const AggregateDecl = std.ArrayList(*AggregateItem);
+    pub const AggregateDecl = std.ArrayList(AggregateItem);
 
     pub const AggregateItem = struct {
         names: StringArray,
@@ -138,7 +146,7 @@ pub const Decl = struct {
 
     pub const LetDecl = struct {
         ty: ?*Typespec,
-        expr: *Expr,
+        expr: ?*Expr,
     };
 
     pub const FuncDecl = struct {
@@ -147,7 +155,7 @@ pub const Decl = struct {
         block: Stmt.Block,
     };
 
-    pub const FuncParamArray = std.ArrayList(*FuncParam);
+    pub const FuncParamArray = std.ArrayList(FuncParam);
 
     pub const FuncParam = struct {
         name: []const u8,
@@ -178,7 +186,7 @@ pub const Decl = struct {
         return t;
     }
 
-    pub fn let(ctx: *Ctxt, n: []const u8, ty: ?*Typespec, expr: *Expr) *Self {
+    pub fn let(ctx: *Ctxt, n: []const u8, ty: ?*Typespec, expr: ?*Expr) *Self {
         const t = alloc(Self, ctx, .let, LetDecl{ .ty = ty, .expr = expr });
         t.*.name = n;
         return t;
@@ -202,7 +210,7 @@ pub const Decl = struct {
         return t;
     }
 
-    fn print_aggregate(d: []*AggregateItem, writer: anytype) !void {
+    fn print_aggregate(d: []AggregateItem, writer: anytype) !void {
         for (d) |item| {
             try std.fmt.format(writer, "\n{s}({}", .{ space[0 .. 2 * indent], item.ty });
             for (item.names.items) |n| {
@@ -254,7 +262,7 @@ pub const Decl = struct {
                 } else {
                     try std.fmt.format(writer, "nil", .{});
                 }
-                try std.fmt.format(writer, " {})", .{value.expr});
+                try std.fmt.format(writer, " {})", .{value.expr.?});
             },
             .const_ => |value| {
                 try std.fmt.format(writer, "(const {s} {})", .{ self.name, value });
@@ -301,6 +309,7 @@ pub const Expr = struct {
         terniary: Terniary,
         sizeof_expr: *Expr,
         sizeof_type: *Typespec,
+        range: Range,
     },
 
     const Self = @This();
@@ -322,6 +331,7 @@ pub const Expr = struct {
         terniary,
         sizeof_expr,
         sizeof_type,
+        range,
     };
 
     pub const ExprArray = std.ArrayList(*Expr);
@@ -366,6 +376,12 @@ pub const Expr = struct {
         cond: *Expr,
         then_expr: *Expr,
         else_expr: *Expr,
+    };
+
+    pub const Range = struct {
+        start: ?*Expr,
+        end: ?*Expr,
+        is_inclusive: bool,
     };
 
     pub fn none(ctx: *Ctxt) *Self {
@@ -436,6 +452,10 @@ pub const Expr = struct {
         return alloc(Self, ctx, .sizeof_type, ty);
     }
 
+    pub fn range(ctx: *Ctxt, start: ?*Expr, end: ?*Expr, is_inclusive: bool) *Self {
+        return alloc(Self, ctx, .range, Range{ .start = start, .end = end, .is_inclusive = is_inclusive });
+    }
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -479,6 +499,19 @@ pub const Expr = struct {
             .terniary => |value| try std.fmt.format(writer, "(? {} {} {})", .{ value.cond, value.then_expr, value.else_expr }),
             .sizeof_expr => |value| try std.fmt.format(writer, "(sizeof-expr {})", .{value}),
             .sizeof_type => |value| try std.fmt.format(writer, "(sizeof-type {})", .{value}),
+            .range => |value| {
+                try std.fmt.format(writer, "({s} ", .{if (value.is_inclusive) "..=" else ".."});
+
+                if (value.start) |s| {
+                    try std.fmt.format(writer, "{}", .{s});
+                }
+
+                if (value.end) |s| {
+                    try std.fmt.format(writer, " {}", .{s});
+                }
+
+                try std.fmt.format(writer, ")", .{});
+            },
         }
     }
 };
@@ -493,7 +526,8 @@ pub const Stmt = struct {
         block: Block,
         if_: If_,
         while_: While_,
-        for_: For_,
+        // for_: For_,
+        for_each: ForEach,
         switch_: Switch_,
         assign: Assign,
         init: Init,
@@ -511,7 +545,8 @@ pub const Stmt = struct {
         block,
         if_,
         while_,
-        for_,
+        // for_,
+        for_each,
         switch_,
         assign,
         init,
@@ -527,7 +562,7 @@ pub const Stmt = struct {
         block: Self.Block,
     };
 
-    pub const ElseIfArray = std.ArrayList(*ElseIf);
+    pub const ElseIfArray = std.ArrayList(ElseIf);
 
     pub const If_ = struct {
         cond: *Expr,
@@ -541,10 +576,16 @@ pub const Stmt = struct {
         block: Self.Block,
     };
 
-    pub const For_ = struct {
-        init: *Self,
-        cond: *Expr,
-        next: *Self,
+    // pub const For_ = struct {
+    //     init: *Self,
+    //     cond: *Expr,
+    //     next: *Self,
+    //     block: Self.Block,
+    // };
+
+    pub const ForEach = struct {
+        name: *Expr,
+        iterable: *Expr,
         block: Self.Block,
     };
 
@@ -554,7 +595,7 @@ pub const Stmt = struct {
         block: Self.Block,
     };
 
-    pub const SwitchCaseArray = std.ArrayList(*SwitchCase);
+    pub const SwitchCaseArray = std.ArrayList(SwitchCase);
 
     pub const Switch_ = struct {
         expr: *Expr,
@@ -618,24 +659,32 @@ pub const Stmt = struct {
         return alloc(Self, ctx, .while_, While_{ .cond = cond, .block = b });
     }
 
-    pub fn for_(ctx: *Ctxt, i: *Expr, cond: *Expr, next: *Expr, b: Self.Block) *Self {
-        return alloc(Self, ctx, .for_, For_{ .init = i, .cond = cond, .next = next, .block = b });
+    // pub fn for_(ctx: *Ctxt, i: *Expr, cond: *Expr, next: *Expr, b: Self.Block) *Self {
+    //     return alloc(Self, ctx, .for_, For_{ .init = i, .cond = cond, .next = next, .block = b });
+    // }
+
+    pub fn forEach(ctx: *Ctxt, n: *Expr, iter: *Expr, b: Self.Block) *Self {
+        return alloc(Self, ctx, .for_each, ForEach{ .name = n, .iterable = iter, .block = b });
     }
 
-    pub fn switch_(ctx: *Ctxt, expr: *Expr, cases: Self.SwitchCaseArray) *Self {
-        return alloc(Self, ctx, .switch_, Switch_{ .expr = expr, .cases = cases });
+    pub fn switch_(ctx: *Ctxt, ex: *Expr, cases: Self.SwitchCaseArray) *Self {
+        return alloc(Self, ctx, .switch_, Switch_{ .expr = ex, .cases = cases });
     }
 
     pub fn assign(ctx: *Ctxt, op: Token.Kind, left: *Expr, right: ?*Expr) *Self {
         return alloc(Self, ctx, .assign, Assign{ .op = op, .left = left, .right = right });
     }
 
-    pub fn init(ctx: *Ctxt, name: []const u8, expr: *Expr) *Self {
-        return alloc(Self, ctx, .init, Init{ .name = name, .expr = expr });
+    pub fn init(ctx: *Ctxt, name: []const u8, ex: *Expr) *Self {
+        return alloc(Self, ctx, .init, Init{ .name = name, .expr = ex });
     }
 
-    pub fn block(ctx: *Ctxt, stmts: Self.StmtArray) *Self {
-        return alloc(Self, ctx, .block, Block{ .stmts = stmts });
+    pub fn block(ctx: *Ctxt, bl: Self.Block) *Self {
+        return alloc(Self, ctx, .block, bl);
+    }
+
+    pub fn expr(ctx: *Ctxt, ex: *Expr) *Self {
+        return alloc(Self, ctx, .expr, ex);
     }
 
     pub fn format(
@@ -675,8 +724,15 @@ pub const Stmt = struct {
                 indent -= 1;
                 try std.fmt.format(writer, ")", .{});
             },
-            .for_ => |value| {
-                try std.fmt.format(writer, "(for {} {} {}", .{ value.init, value.cond, value.next });
+            // .for_ => |value| {
+            //     try std.fmt.format(writer, "(for {} {} {}", .{ value.init, value.cond, value.next });
+            //     indent += 1;
+            //     try std.fmt.format(writer, "\n{s}{}", .{ space[0 .. 2 * indent], value.block });
+            //     indent -= 1;
+            //     try std.fmt.format(writer, ")", .{});
+            // },
+            .for_each => |value| {
+                try std.fmt.format(writer, "(for {} in {}", .{ value.name, value.iterable });
                 indent += 1;
                 try std.fmt.format(writer, "\n{s}{}", .{ space[0 .. 2 * indent], value.block });
                 indent -= 1;

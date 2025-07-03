@@ -75,8 +75,16 @@ pub fn nextToken(self: *Self) void {
             if (std.ascii.isDigit(self.stream[self.pos + 1])) {
                 self.scan_float();
             } else {
-                self.token = .init(.dot);
                 _ = self.advance();
+                self.token = .init(.dot);
+                if (self.peek() == '.') {
+                    _ = self.advance();
+                    self.token = .init(.dot_dot);
+                    if (self.peek() == '=') {
+                        _ = self.advance();
+                        self.token = .init(.dot_dot_eq);
+                    }
+                }
             }
         },
 
@@ -135,9 +143,10 @@ pub fn nextToken(self: *Self) void {
             }
 
             const ch = self.peek();
+            const ch1 = if (self.stream.len > self.pos + 1) self.stream[self.pos + 1] else 0;
             self.pos = start;
 
-            if (ch == '.' or std.ascii.toLower(ch) == 'e') {
+            if ((ch == '.' and ch1 != '.') or std.ascii.toLower(ch) == 'e') {
                 self.scan_float();
             } else {
                 self.scan_int();
@@ -476,16 +485,16 @@ pub fn isName(self: *Self, name: []const u8) bool {
     }
 }
 
-pub fn isKeyword(self: *const Self, n: []const u8) bool {
-    if (self.token.kind() == .keyword()) {
-        return std.mem.eql(u8, self.token.data.keyword, n);
+pub fn isKeyword(self: *const Self, kw: Token.Kw) bool {
+    if (self.token.kind() == .keyword) {
+        return self.token.data.keyword == kw;
     } else {
         return false;
     }
 }
 
-pub fn matchKeyword(self: *Self, name: []const u8) bool {
-    if (self.isKeyword(name)) {
+pub fn matchKeyword(self: *Self, kw: Token.Kw) bool {
+    if (self.isKeyword(kw)) {
         self.nextToken();
         return true;
     }
@@ -500,12 +509,12 @@ pub fn matchToken(self: *Self, kind: Token.Kind) bool {
     return false;
 }
 
-pub fn expect(self: *Self, kind: Token.Kind) bool {
+pub inline fn expect(self: *Self, kind: Token.Kind) bool {
     if (self.is(kind)) {
         self.nextToken();
         return true;
     } else {
-        lib.fatal("expected token {s}, got {}", kind.toString(), self.token);
+        lib.fatal(@src(), "expected token {s}, got {}", .{ kind.toString(), self.token });
         return false;
     }
 }
@@ -628,5 +637,24 @@ test "lexer test" {
     lexer.assertStr("👍👎");
     lexer.assertStr("😂👍🏽");
     lexer.assertStr("🏃‍♂️");
+    lexer.assertEof();
+
+    lexer.reinit("for i in 0..10 for n in array for i in 0..=10");
+    lexer.assertKw(.for_);
+    lexer.assertName("i");
+    lexer.assertKw(.in_);
+    lexer.assertInt(0);
+    lexer.assert(.dot_dot);
+    lexer.assertInt(10);
+    lexer.assertKw(.for_);
+    lexer.assertName("n");
+    lexer.assertKw(.in_);
+    lexer.assertName("array");
+    lexer.assertKw(.for_);
+    lexer.assertName("i");
+    lexer.assertKw(.in_);
+    lexer.assertInt(0);
+    lexer.assert(.dot_dot_eq);
+    lexer.assertInt(10);
     lexer.assertEof();
 }
